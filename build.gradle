@@ -1,0 +1,109 @@
+plugins {
+    id "groovy"
+    id "com.github.johnrengelman.shadow" version "7.1.2"
+    id "war"
+    id "application"
+}
+
+
+version "2.2"
+group "mapper.mn"
+
+repositories {
+    mavenCentral()
+    maven { url "https://jcenter.bintray.com" }
+}
+
+configurations {
+    // for dependencies that are needed for development only
+    developmentOnly
+}
+
+dependencies {
+    annotationProcessor platform("io.micronaut:micronaut-bom:$micronautVersion")
+    annotationProcessor "io.micronaut.security:micronaut-security-annotations"
+    annotationProcessor "io.micronaut:micronaut-inject-java"
+    annotationProcessor "io.micronaut:micronaut-validation"
+    implementation 'org.codehaus.groovy:groovy-sql:3.0.19'
+    implementation "io.micronaut.openapi:micronaut-openapi"
+    implementation platform("io.micronaut:micronaut-bom:$micronautVersion")
+    implementation "io.micronaut:micronaut-inject-groovy"
+    implementation platform("io.micronaut:micronaut-bom:$micronautVersion")
+    implementation("io.micronaut.groovy:micronaut-runtime-groovy")
+    implementation "io.micronaut:micronaut-validation"
+    implementation("io.micronaut.servlet:micronaut-http-server-tomcat")
+    implementation "io.micronaut:micronaut-http-client"
+    implementation "io.swagger.core.v3:swagger-annotations"
+    implementation "io.micronaut.security:micronaut-security-jwt"
+    implementation("io.micronaut.servlet:micronaut-servlet-engine")
+    implementation("org.codehaus.janino:janino:3.1.0")
+    implementation 'io.micronaut.sql:micronaut-jdbc-tomcat'
+    implementation 'org.postgresql:postgresql:42.6.0'
+    implementation "ch.qos.logback:logback-classic:1.2.3"
+    implementation("io.micronaut:micronaut-core")
+
+    testImplementation platform("io.micronaut:micronaut-bom:$micronautVersion")
+    testImplementation("org.spockframework:spock-core") {
+        exclude group: "org.codehaus.groovy", module: "groovy-all"
+    }
+    testImplementation "io.micronaut:micronaut-inject-groovy"
+    testImplementation "io.micronaut.test:micronaut-test-spock"
+    testImplementation "io.micronaut.test:micronaut-test-junit5"
+    testImplementation "org.junit.vintage:junit-vintage-engine:5.5.0"
+}
+
+test.classpath += configurations.developmentOnly
+
+mainClassName = "au.org.biodiversity.mapper.Application"
+tasks.withType(GroovyCompile) {
+    groovyOptions.forkOptions.jvmArgs.add('-Dgroovy.parameters=true')
+}
+
+war {
+    archiveFileName = 'nsl#mapper.war'
+}
+
+shadowJar {
+    mergeServiceFiles()
+}
+
+run.classpath += configurations.developmentOnly
+run.jvmArgs('-noverify', '-XX:TieredStopAtLevel=1', '-Dcom.sun.management.jmxremote',
+        "-Dmicronaut.config.files=${System.getProperty("user.home")}/.nsl/nsl-mapper-config-mn.groovy")
+
+test.jvmArgs('-noverify', '-XX:TieredStopAtLevel=1', '-Dcom.sun.management.jmxremote',
+        "-Dmicronaut.config.files=./src/test/resource/nsl-mapper-config-mn.groovy")
+
+task createTestDb(type: Exec) {
+    workingDir "$projectDir/src/test/resource"
+    commandLine './createTestDb.sh'
+}
+
+tasks.withType(Test) {
+    dependsOn(createTestDb)
+}
+
+task dockerPublish() {
+    dependsOn(assemble)
+    doFirst {
+        exec {
+            workingDir(projectDir)
+            ignoreExitValue(true)
+            commandLine 'docker', 'image', 'rm', 'nsl-mapper'
+        }
+    }
+    doLast {
+        exec {
+            workingDir(projectDir)
+            commandLine 'docker', 'build', '--tag=nsl-mapper', '.'
+        }
+        exec {
+            workingDir(projectDir)
+            commandLine "docker", "tag", "nsl-mapper", "biodiversity/nsl-mapper:${version}"
+        }
+        exec {
+            workingDir(projectDir)
+            commandLine "docker", "push", "biodiversity/nsl-mapper:${version}"
+        }
+    }
+}

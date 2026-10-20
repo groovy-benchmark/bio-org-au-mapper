@@ -1,0 +1,225 @@
+= Mapper
+v2.0, September 2019
+:toc: left
+:toclevels: 4
+:toc-class: toc2
+:icons: font
+:description: Mapper documentation
+:keywords: documentation, Grails, Mapper, NSL, V2.0, micronaut
+:links:
+:numbered:
+:sectlinks:
+
+image:https://travis-ci.org/bio-org-au/mapper-mn.svg?branch=master["Build Status", link="https://travis-ci.org/bio-org-au/mapper-mn"]
+
+== Introduction
+
+The *Mapper* maps URI *identifiers* to *resources* based on content negotiation. It is the place an ID is created and
+mapped to a resource.
+
+From that point on the mapped URI becomes a *permalink* that will always resolve.
+
+The mapper manages de-duplication of resources by allowing you to move a mapping from one resource identifier to
+another. It also manages deletion of resources allowing you to provide a reason for deleting a resource, which is
+returned with a 410 GONE http response.
+
+You can map a URI to different servers based on the content type requested, e.g. JSON, XML, RDF, HTML.
+
+For info on how it works, data structure and API see: link:doc/guide.adoc[]
+
+=== License
+
+This software is copyright (c) 2019 Australian National Botanic Gardens
+
+This file is part of National Species List project.
+
+    Licensed under the Apache License, Version 2.0 (the "License"); you may not
+    use this file except in compliance with the License. You may obtain a copy
+    of the License at http://www.apache.org/licenses/LICENSE-2.0
+
+    Unless required by applicable law or agreed to in writing, software
+    distributed under the License is distributed on an "AS IS" BASIS,
+    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+    See the License for the specific language governing permissions and
+    limitations under the License.
+
+See: link:LICENSE.adoc[]
+
+== Quick start
+
+link:https://sdkman.io/[SDK Man] is your friend for installing SDKs including Java, Grails etc.
+
+=== Java
+
+You need Java 8 installed and on your PATH. Type `java -version` from the command line to check. You should
+get something like:
+
+----
+openjdk version "1.8.0_222"
+OpenJDK Runtime Environment (build 1.8.0_222-b10)
+OpenJDK 64-Bit Server VM (build 25.222-b10, mixed mode)
+----
+
+If you need to install one try (YMMV):
+
+`sdk install java 8.0.222-adpt`
+
+=== Database
+
+1. Install postgresql
+2. Create a super user called "nsl" with the password "nsl": `created user -s nsl`
+3. edit pg_hba.conf so that local interfaces can talk to postgresql with a password:
+
+[source]
+.pg_hba.conf
+----
+...
+# TYPE  DATABASE        USER            ADDRESS                 METHOD
+...
+# IPv4 local connections:
+host    all             all             0.0.0.0/0               md5 #<1>
+...
+----
+
+<1> md5 is a hashed password authentication over TCP and listen on all addresses
+
+TIP: Open port 5432 on any local firewall if you are using Docker so that the app can connect.
+
+
+If you don't have a mapper schema, you can need to create the schema. Get the `test/resource/ddl.sql` from the GitHub
+repository and run:
+
+`dropdb --if-exists nsl && createdb nsl && psql -f ddl.sql nsl`
+
+WARNING: Don't drop the nsl database if it has data you want to keep in it! You could just drop the mapper schema.
+
+TIP: You can call your DB something else if you like, just change references to it
+
+=== Config
+
+Make a local configuration file called `nsl-mapper-config-mn.groovy` and put it in a directory like `~/.nsl/ (see the docs/guide.adoc).
+
+This is a basic config that will get you running assuming you have a local database called "nsl" with a user called "nsl" and
+password "nsl".
+
+[source]
+.nsl-mapper-config-mn.groovy
+----
+import au.org.biodiversity.mapper.Identifier
+
+mapper {
+    resolverURL = 'http://localhost:8080/nsl-mapper'         //<1>
+    defaultProtocol = 'http'
+
+    Closure defaultResolver = { Identifier ident ->
+        Map serviceHosts = [
+                apni: 'https://localhost:8090/nsl'           //<2>
+        ]
+        String host = serviceHosts[ident.nameSpace]
+        if (ident.objectType == 'treeElement') {
+            return "${host}/services/rest/${ident.objectType}/${ident.versionNumber}/${ident.idNumber}"
+        }
+        return "${host}/services/rest/${ident.objectType}/${ident.nameSpace}/${ident.idNumber}"
+    }
+
+    format {
+        html = defaultResolver
+        json = defaultResolver
+        xml = defaultResolver
+        rdf = {Identifier ident -> return null}
+    }
+
+    auth = [
+            'TEST-services': [
+                    secret: 'buy-me-a-pony',
+                    application: 'services',
+                    roles      : ['admin'],
+            ],
+            'TEST-editor': [
+                    secret: 'I-am-a-pony',
+                    application: 'editor',
+                    roles      : ['admin'],
+            ]
+    ]
+}
+----
+
+=== Docker
+
+To run the mapper using Docker you need to map the config directory to etc/nsl using -v.
+
+Run the mapper from docker hub:
+
+* `docker run -p 127.0.0.1:7070:8080 -v $HOME/.nsl:/etc/nsl:ro pmcneil/nsl-mapper:2.0`
+
+Note your configuration will need to either use a host name or IP address, not localhost, for the database connection.
+
+See  https://docs.docker.com/v17.12/edge/engine/reference/run/[Publish or expose port (-p, –expose)]
+
+TIP: You'll need to open firewall ports for the database connection and the web connection (e.g. 5432 and 8080) if
+your OS has a firewall.
+
+Stop the running container using `docker container stop <container ID>` where <container ID> is found using
+`docker container ls`.
+
+=== Development
+
+1. make sure you have a database, java and config
+2. clone this repository somewhere
+3. cd to project directory
+4. execute `./gradlew run` from the command line
+5. browse to localhost:8080/ to see mapper page
+
+to stop just press CTRL-C.
+
+NOTE: you can change the default port that Micronaut uses by setting the environment variable `MICRONAUT_SERVER_PORT=8086`.
+You can also set it in the resources/application.yml see: https://docs.micronaut.io/latest/guide/index.html#runningSpecificPort
+
+TIP: There is a `run-mapper.sh` script you can used to run the mapper from a jar. Make sure you edit it and set the appropriate environment variables for your environment.
+
+See: link:doc/guide.adoc[]
+
+==== Testing
+
+run `./gradlew test` after which the test reports will be in `build/reports/test`
+
+== Systemd
+
+For linux systems that use systemd you can take the example mapper.service file and put it in `/etc/systemd/system/`
+so you can start the mapper as a service. You will need an `EnvironmentFile` that defines the port, where the jar file is
+and mapper config file. By default the EnvironmentFile is `/etc/mapper-env`.
+
+[source]
+.mapper-env example
+----
+MICRONAUT_SERVER_PORT=7070
+CONFIG_FILE_LOCATION=/home/pmcneil/.nsl/mapper-config-mn.groovy <1>
+JAR_FILE=/opt/anbg/mapper-mn.jar
+----
+
+<1> change to suit where your config file lives.
+
+[source]
+.mapper.service
+----
+[Unit]
+Description=Mapper Service
+
+[Service]
+User=apni <1>
+Group=apni <2>
+EnvironmentFile=/etc/mapper-env
+ExecStart=/usr/bin/java \
+-XX:+UnlockExperimentalVMOptions \
+-XX:+UseCGroupMemoryLimitForHeap \
+-Dcom.sun.management.jmxremote \
+-noverify \
+-Dmicronaut.config.files=${CONFIG_FILE_LOCATION} \
+-jar ${JAR_FILE}
+
+[Install]
+WantedBy=multi-user.target
+----
+
+<1> set the appropriate system user
+<2> set the appropriate system group

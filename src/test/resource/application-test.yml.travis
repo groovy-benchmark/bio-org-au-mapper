@@ -1,0 +1,12 @@
+micronaut:
+  application:
+    name: mapper-mn
+---
+datasources:
+  default:
+    url: jdbc:postgresql://localhost:5432/nsl-test
+    username: postgres
+    driverClassName: org.postgresql.Driver
+    autoCommit: false
+    schema: mapper
+    socketTimeout: 30
